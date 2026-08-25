@@ -1,0 +1,190 @@
+#include "numled.h"
+#include "modbus.h"
+
+volatile ByteBit_Union DG1_Flag = {0};
+volatile ByteBit_Union DG2_Flag = {0};
+volatile ByteBit_Union DG3_Flag = {0};
+BMS_RealtimeData_t rt;
+
+void Num_Led_Init(void)
+{
+		__HAL_RCC_GPIOB_CLK_ENABLE();
+		GPIO_InitTypeDef GPIO_InitStruct = {0};
+		
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
+		
+		GPIO_InitStruct.Pin = LED_IO_1_PIN | LED_IO_2_PIN | LED_IO_3_PIN | LED_IO_4_PIN | LED_IO_5_PIN;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Pull = GPIO_NOPULL;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+		HAL_GPIO_Init(LED_IO_1_PORT, &GPIO_InitStruct);
+
+//		GPIO_InitStruct.Pin = GPIO_PIN_6;
+//		GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+//		GPIO_InitStruct.Pull = GPIO_NOPULL;
+//		HAL_GPIO_Init(LED_IO_1_PORT, &GPIO_InitStruct);
+		
+		
+}
+
+void Led_under_deal(void) {
+    // 第一步：所有IO置为输入(高阻)，并软件拉低
+    LED_IO_1_IN();
+    LED_IO_2_IN();
+    LED_IO_3_IN();
+    LED_IO_4_IN();
+    LED_IO_5_IN();
+    LED_IO_1_WRITE(0);
+    LED_IO_2_WRITE(0);
+    LED_IO_3_WRITE(0);
+    LED_IO_4_WRITE(0);
+    LED_IO_5_WRITE(0);
+
+    // 第二步：根据步骤，设置对应的IO为输出并置高，公共脚为输出并置低
+    if (led_disp_step == 0) {
+        if (DG3_B) { LED_IO_2_OUT(); LED_IO_2_WRITE(1); }//B3
+        if (DG3_D) { LED_IO_3_OUT(); LED_IO_3_WRITE(1); }//D3
+        if (DG3_F) { LED_IO_4_OUT(); LED_IO_4_WRITE(1); }//F3
+        if (DG3_G) { LED_IO_5_OUT(); LED_IO_5_WRITE(1); }//G3
+        LED_IO_1_OUT();
+        LED_IO_1_WRITE(0);//公共脚1
+    } 
+    else if (led_disp_step == 1) {
+        if (DG2_B) { LED_IO_3_OUT(); LED_IO_3_WRITE(1); }//B2
+        if (DG2_D) { LED_IO_4_OUT(); LED_IO_4_WRITE(1); }//D2
+		if (DG2_E) { LED_IO_5_OUT(); LED_IO_5_WRITE(1); }//E2
+        if (DG3_A) { LED_IO_1_OUT(); LED_IO_1_WRITE(1); }//A3
+        LED_IO_2_OUT();
+        LED_IO_2_WRITE(0);//公共脚2
+    } 
+    else if (led_disp_step == 2) {
+        if (DG2_A) { LED_IO_2_OUT(); LED_IO_2_WRITE(1); }//A2
+        if (DG2_C) { LED_IO_4_OUT(); LED_IO_4_WRITE(1); }//C2
+		if (DG2_F) { LED_IO_5_OUT(); LED_IO_5_WRITE(1); }//F2
+        if (DG3_C) { LED_IO_1_OUT(); LED_IO_1_WRITE(1); }//C3
+        LED_IO_3_OUT();
+        LED_IO_3_WRITE(0);//公共脚3
+    } 
+    else if (led_disp_step == 3) {
+        if (DG3_E) { LED_IO_1_OUT(); LED_IO_1_WRITE(1); }//E3
+		if (DG2_G) { LED_IO_5_OUT(); LED_IO_5_WRITE(1); }//G2
+		if (DG1_B) { LED_IO_3_OUT(); LED_IO_3_WRITE(1); }//B1
+		if (DG1_C) { LED_IO_2_OUT(); LED_IO_2_WRITE(1); }//C1
+        LED_IO_4_OUT();
+        LED_IO_4_WRITE(0);//公共脚4
+    }
+    else if (led_disp_step == 4) {
+		if (DG1_A) { LED_IO_3_OUT(); LED_IO_3_WRITE(1); }//充放电符号
+		if (DG1_D) { LED_IO_2_OUT(); LED_IO_2_WRITE(1); }//“%”符号
+		LED_IO_5_OUT();
+		LED_IO_5_WRITE(0);//公共脚5
+	}
+    led_disp_step++;
+    if (led_disp_step >= 5) led_disp_step = 0;
+}
+
+// --- 6. 显示函数 ---
+void DG_ALL(uint8_t EN_DIS) {
+    if (EN_DIS) { // 全开
+        DG1_Flag.byte = 0xff;
+        DG2_Flag.byte = 0xff;
+		DG3_Flag.byte = 0xff;
+    } else { // 全关
+        DG1_Flag.byte = 0;
+        DG2_Flag.byte = 0;
+		DG3_Flag.byte = 0;
+    }
+}
+//后面的符号灯：充放电打开，故障关闭
+void DG_LED(uint8_t EN_DIS) {
+    if (EN_DIS) { // 全开
+        DG1_A = 1;
+		DG1_D = 1;
+    } else { // 全关
+        DG1_A = 0;
+		DG1_D = 0;
+    }
+}
+/*
+num1:第一个数码管显示的百位数字（1）
+num2:第二个数码管显示的十位数字或故障开头E（0-9、E）
+num3:第三个数码管显示的个位数字或故障数字（0-9）
+*/
+void DG_Display(uint8_t num1, uint8_t num2, uint8_t num3) {
+    DG_ALL(0); // 先全部清零
+	// 设置第一个数码管的段(1) 
+    switch(num1) {
+//				case 0: DG1_B=0;DG1_C=0; break;// 0
+        case 1: DG1_B=1;DG1_C=1; break;// 1
+		//case 2: DG1_A=1;DG1_D=1;DG1_E=1;DG1_F=1;DG1_G=1; break;//E
+        default: break;
+    }
+    // 设置第二个数码管的段（0-9、E） 
+    switch(num2) {
+        case 0: DG2_A=1;DG2_B=1;DG2_C=1;DG2_D=1;DG2_E=1;DG2_F=1; break;//0
+        case 1: DG2_B=1;DG2_C=1; break;//1
+        case 2: DG2_A=1;DG2_B=1;DG2_D=1;DG2_E=1;DG2_G=1; break;//2
+        case 3: DG2_A=1;DG2_B=1;DG2_C=1;DG2_D=1;DG2_G=1; break;//3
+				case 4: DG2_B=1;DG2_C=1;DG2_F=1;DG2_G=1; break;//4
+				case 5: DG2_A=1;DG2_C=1;DG2_D=1;DG2_F=1;DG2_G=1; break;//5
+				case 6: DG2_A=1;DG2_C=1;DG2_D=1;DG2_E=1;DG2_F=1;DG2_G=1; break;//6
+				case 7: DG2_A=1;DG2_B=1;DG2_C=1; break;//7
+				case 8: DG2_A=1;DG2_B=1;DG2_C=1;DG2_D=1;DG2_E=1;DG2_F=1;DG2_G=1; break;//8
+        case 9: DG2_A=1;DG2_B=1;DG2_C=1;DG2_D=1;DG2_F=1;DG2_G=1; break;//9
+				case 10: DG2_A=1;DG2_D=1;DG2_E=1;DG2_F=1;DG2_G=1; break;//E
+        default: break;
+    }
+
+    // 设置第三个数码管的段 （0-9）
+    switch(num3) {
+        case 0: DG3_A=1;DG3_B=1;DG3_C=1;DG3_D=1;DG3_E=1;DG3_F=1; break;//0
+        case 1: DG3_B=1;DG3_C=1; break;//1
+        case 2: DG3_A=1;DG3_B=1;DG3_D=1;DG3_E=1;DG3_G=1; break;//2
+				case 3: DG3_A=1;DG3_B=1;DG3_C=1;DG3_D=1;DG3_G=1; break;//3
+				case 4: DG3_B=1;DG3_C=1;DG3_F=1;DG3_G=1; break;//4
+				case 5: DG3_A=1;DG3_C=1;DG3_D=1;DG3_F=1;DG3_G=1; break;//5
+				case 6: DG3_A=1;DG3_C=1;DG3_D=1;DG3_E=1;DG3_F=1;DG3_G=1; break;//6
+				case 7: DG3_A=1;DG3_B=1;DG3_C=1; break;//7
+				case 8: DG3_A=1;DG3_B=1;DG3_C=1;DG3_D=1;DG3_E=1;DG3_F=1;DG3_G=1; break;//8
+        case 9: DG3_A=1;DG3_B=1;DG3_C=1;DG3_D=1;DG3_F=1;DG3_G=1; break;//9
+				case 10: DG3_C=1;DG3_D=1;DG3_E=1;DG3_F=1;DG3_G=1; break;//b
+				case 11: DG3_D=1;DG3_E=1;DG3_G=1; break;//c
+				case 12: DG3_B=1;DG3_C=1;DG3_D=1;DG3_E=1;DG3_G=1; break;//d
+				case 13: DG3_A=1;DG3_B=1;DG3_D=1;DG3_E=1;DG3_F=1;DG3_G=1;break;//e
+				case 14: DG3_A=1;DG3_E=1;DG3_F=1;DG3_G=1;break;//F
+				case 15: DG3_A=1;DG3_D=1;DG3_E=1;DG3_F=1;DG3_G=1; break;//E
+        default: break;
+    }
+}
+
+void Soc_Show(void)
+{
+		BMS_ReadRealtimeData(&rt);
+    ErrFlag_t terr_flag = rt.err_flag;
+    if(terr_flag.raw == 0){// 无故障
+        uint16_t soc = rt.soc / 10;
+        uint8_t soc_bai = soc / 100;  // 百位部分
+        uint8_t soc_shi = (soc / 10) % 10;  // 十位部分
+        uint8_t soc_ge = soc % 10;  // 小数部分
+        DG_Display(soc_bai, soc_shi, soc_ge);
+        DG_LED(1);  // 打开充放电指示灯
+    }else{// 有故障
+      if(terr_flag.bits.CHG) {DG_Display(0, 10, 0);}//禁止充电(任意原因)故障码E0
+      if(terr_flag.bits.DSG) {DG_Display(0, 10, 1);}//禁止放电(任意原因)故障码E1
+      if(terr_flag.bits.Cell_OV) {DG_Display(0, 10, 2);}//电芯过压故障码E2
+      if(terr_flag.bits.Cell_UV) {DG_Display(0, 10, 3);}//电芯低压故障码E3
+      if(terr_flag.bits.Pack_OV) {DG_Display(0, 10, 4);}//电池组高压故障码E4
+      if(terr_flag.bits.Pack_UV) {DG_Display(0, 10, 5);}//电池组低压故障码E5
+      if(terr_flag.bits.TMP_Max_CHG) {DG_Display(0, 10, 6);}//充电过温故障码E6
+      if(terr_flag.bits.TMP_Max_DSG) {DG_Display(0, 10, 7);}//放电过温故障码E7
+      if(terr_flag.bits.TMP_Min_CHG) {DG_Display(0, 10, 8);}//充电低温故障码E8
+      if(terr_flag.bits.TMP_Min_DSG) {DG_Display(0, 10, 9);}//放电低温故障码E9
+      if(terr_flag.bits.CHG_OC) {DG_Display(0, 10, 10);}//充电过流故障码Eb
+      if(terr_flag.bits.DSG_OC) {DG_Display(0, 10, 11);}//放电过流故障码Ec
+      if(terr_flag.bits.TMP_Max_MOS) {DG_Display(0, 10, 12);}//MOS过温故障码Ed
+      if(terr_flag.bits.CHG_MOS_Damaged) {DG_Display(0, 10, 13);}//充电MOS损坏故障码Ee
+      if(terr_flag.bits.DSG_MOS_Damaged) {DG_Display(0, 10, 14);}//放电MOS损坏故障码EF
+      if(terr_flag.bits.SC) {DG_Display(0, 10, 15);}//短路故障码EE
+      DG_LED(0);  // 关闭充放电指示灯
+    }
+}
